@@ -2,6 +2,7 @@ const express = require("express");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const PDFDocument = require("pdfkit");
 const {
   Invoice,
   SalesOrder,
@@ -734,5 +735,634 @@ router.get(
     }
   }
 );
+
+/**
+ * Generate invoice HTML preview from sales order
+ * GET /api/invoices/preview/:salesOrderId
+ */
+router.get("/preview/:salesOrderId", authenticateToken, async (req, res) => {
+  try {
+    const { salesOrderId } = req.params;
+
+    // Fetch sales order with customer and items
+    const salesOrder = await SalesOrder.findByPk(salesOrderId, {
+      include: [
+        { model: Customer, as: "customer" },
+        { model: User, as: "creator" },
+      ],
+    });
+
+    if (!salesOrder) {
+      return res.status(404).json({ message: "Sales order not found" });
+    }
+
+    // Check if invoice already exists
+    let invoice = await Invoice.findOne({
+      where: {
+        sales_order_id: salesOrderId,
+        invoice_type: "sales",
+      },
+    });
+
+    // If no invoice exists, create one
+    if (!invoice) {
+      const invoiceNumber = documentService.generateInvoiceNumber();
+      const items = salesOrder.items || [];
+      const subtotal = parseFloat(
+        (salesOrder.total_quantity || 0) * (salesOrder.unit_price || 0)
+      ).toFixed(2);
+      const tax = parseFloat(salesOrder.gst_amount || 0).toFixed(2);
+      const total = parseFloat(
+        salesOrder.final_amount || parseFloat(subtotal) + parseFloat(tax)
+      ).toFixed(2);
+
+      invoice = await Invoice.create({
+        invoice_number: invoiceNumber,
+        invoice_type: "sales",
+        sales_order_id: salesOrderId,
+        customer_id: salesOrder.customer_id,
+        invoice_date: new Date(),
+        due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        items: items,
+        subtotal: parseFloat(subtotal),
+        total_tax_amount: parseFloat(tax),
+        total_amount: parseFloat(total),
+        status: "draft",
+        payment_status: "unpaid",
+        created_by: req.user.id,
+      });
+    }
+
+    // Generate HTML
+    const html = generateInvoiceHTML({
+      invoice,
+      salesOrder,
+      customer: salesOrder.customer,
+    });
+
+    res.json({
+      success: true,
+      invoice_id: invoice.id,
+      invoice_number: invoice.invoice_number,
+      order_number: salesOrder.order_number,
+      html,
+    });
+  } catch (error) {
+    console.error("Invoice preview error:", error);
+    res.status(500).json({
+      message: "Failed to generate invoice preview",
+      error: error.message,
+    });
+  }
+});
+
+/**
+ * Download invoice as PDF
+ * GET /api/invoices/download-pdf/:salesOrderId
+ */
+router.get(
+  "/download-pdf/:salesOrderId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { salesOrderId } = req.params;
+
+      // Fetch sales order
+      const salesOrder = await SalesOrder.findByPk(salesOrderId, {
+        include: [
+          { model: Customer, as: "customer" },
+          { model: User, as: "creator" },
+        ],
+      });
+
+      if (!salesOrder) {
+        return res.status(404).json({ message: "Sales order not found" });
+      }
+
+      // Check if PDF exists
+      const existingDoc = await DocumentAttachment.findOne({
+        where: {
+          entity_type: "sales_order",
+          entity_id: salesOrderId,
+          document_type: "invoice",
+        },
+        order: [["created_at", "DESC"]],
+      });
+
+      if (existingDoc && fs.existsSync(existingDoc.file_path)) {
+        // Download existing PDF
+        return res.download(
+          existingDoc.file_path,
+          `Invoice-${salesOrder.order_number}.pdf`
+        );
+      }
+
+      // Generate new PDF using pdfkit
+      const pdfBuffer = await generateInvoicePDF({
+        invoice: {
+          invoice_number: `INV-${salesOrder.order_number}`,
+          invoice_date: salesOrder.created_at,
+          order_number: salesOrder.order_number,
+          items: salesOrder.items || [],
+          subtotal:
+            (salesOrder.total_quantity || 0) * (salesOrder.unit_price || 0),
+          tax: salesOrder.gst_amount || 0,
+          total: salesOrder.final_amount || 0,
+        },
+        salesOrder,
+        customer: salesOrder.customer,
+      });
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="Invoice-${salesOrder.order_number}.pdf"`
+      );
+      res.send(pdfBuffer);
+    } catch (error) {
+      console.error("PDF download error:", error);
+      res.status(500).json({
+        message: "Failed to download PDF",
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * Download invoice as HTML
+ * GET /api/invoices/download-html/:salesOrderId
+ */
+router.get(
+  "/download-html/:salesOrderId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { salesOrderId } = req.params;
+
+      // Fetch sales order
+      const salesOrder = await SalesOrder.findByPk(salesOrderId, {
+        include: [
+          { model: Customer, as: "customer" },
+          { model: User, as: "creator" },
+        ],
+      });
+
+      if (!salesOrder) {
+        return res.status(404).json({ message: "Sales order not found" });
+      }
+
+      // Generate HTML
+      const html = generateInvoiceHTML({
+        salesOrder,
+        customer: salesOrder.customer,
+      });
+
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="Invoice-${salesOrder.order_number}.html"`
+      );
+      res.send(html);
+    } catch (error) {
+      console.error("HTML download error:", error);
+      res.status(500).json({
+        message: "Failed to download HTML",
+        error: error.message,
+      });
+    }
+  }
+);
+
+/**
+ * Helper function to generate invoice HTML
+ */
+function generateInvoiceHTML({ salesOrder, customer }) {
+  const items = salesOrder.items || [];
+  const subtotal =
+    (salesOrder.total_quantity || 0) * (salesOrder.unit_price || 0);
+  const tax = salesOrder.gst_amount || 0;
+  const total = salesOrder.final_amount || subtotal + tax;
+
+  const itemsHTML = items
+    .map(
+      (item) => `
+    <tr>
+      <td>${item.product_name || "Product"}</td>
+      <td style="text-align: center;">${item.quantity || 0}</td>
+      <td style="text-align: right;">₹${(item.unit_price || 0).toFixed(2)}</td>
+      <td style="text-align: right;">₹${(
+        (item.quantity || 0) * (item.unit_price || 0)
+      ).toFixed(2)}</td>
+    </tr>
+  `
+    )
+    .join("");
+
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sales Order Invoice - ${salesOrder.order_number}</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      background: #f7f9fc;
+      color: #333;
+      line-height: 1.6;
+    }
+    .container {
+      background: #fff;
+      max-width: 950px;
+      margin: 30px auto;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      padding: 40px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #007bff;
+      padding-bottom: 15px;
+      margin-bottom: 20px;
+    }
+    .header h2 {
+      color: #007bff;
+      font-size: 24px;
+      margin: 0;
+    }
+    .company-info {
+      text-align: right;
+      font-size: 13px;
+      color: #555;
+      line-height: 1.8;
+    }
+    .company-info strong {
+      display: block;
+      font-size: 15px;
+      margin-bottom: 3px;
+    }
+    .status-box {
+      background: #fff8e1;
+      border-left: 6px solid #ffc107;
+      padding: 12px 15px;
+      margin: 20px 0;
+      border-radius: 5px;
+      font-size: 15px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .section {
+      margin-top: 25px;
+      margin-bottom: 20px;
+    }
+    .section h3 {
+      color: #007bff;
+      border-bottom: 1px solid #eee;
+      padding-bottom: 8px;
+      font-size: 16px;
+      margin-bottom: 12px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 15px 0;
+    }
+    th, td {
+      padding: 12px;
+      border-bottom: 1px solid #eee;
+      text-align: left;
+    }
+    th {
+      background: #007bff;
+      color: #fff;
+      font-weight: 600;
+    }
+    td {
+      font-size: 14px;
+    }
+    .info-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 15px;
+    }
+    .info-block {
+      padding: 12px;
+      background: #f8f9fa;
+      border-radius: 5px;
+    }
+    .info-label {
+      font-weight: 600;
+      color: #555;
+      font-size: 12px;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .info-value {
+      color: #333;
+      font-size: 14px;
+    }
+    .summary {
+      float: right;
+      margin-top: 20px;
+      font-size: 15px;
+      width: 40%;
+    }
+    .summary table {
+      border: none;
+      margin: 0;
+    }
+    .summary td {
+      padding: 8px 12px;
+      border-bottom: 1px solid #eee;
+    }
+    .summary tr:last-child td {
+      border-bottom: 2px solid #007bff;
+      font-weight: 600;
+      font-size: 16px;
+    }
+    .summary .total {
+      background: #f0f7ff;
+      color: #007bff;
+    }
+    .qr-box {
+      text-align: center;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid #eee;
+    }
+    .qr-box h3 {
+      border: none;
+      color: #333;
+      font-size: 14px;
+      margin-bottom: 10px;
+    }
+    .qr-box img {
+      max-width: 120px;
+      height: auto;
+    }
+    .footer {
+      text-align: center;
+      font-size: 12px;
+      color: #888;
+      margin-top: 40px;
+      padding-top: 20px;
+      border-top: 1px solid #eee;
+    }
+    .clear {
+      clear: both;
+    }
+    @media print {
+      body {
+        background: #fff;
+      }
+      .container {
+        margin: 0;
+        box-shadow: none;
+        max-width: 100%;
+        border-radius: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>Sales Order Invoice</h2>
+      <div class="company-info">
+        <strong>Passion Clothing Co.</strong><br>
+        Chakan, Pune<br>
+        Email: info@passion-clothing.com<br>
+        Phone: +91-8080659069<br>
+        GSTIN: 09AAACH7409R1ZZ
+      </div>
+    </div>
+
+    <div class="status-box">
+      🟡 <strong>Status:</strong> ${
+        salesOrder.status || "Draft"
+      } — Invoice generated and linked to PO successfully.
+    </div>
+
+    <div class="section">
+      <h3>Order Information</h3>
+      <div class="info-row">
+        <div class="info-block">
+          <div class="info-label">Order Number</div>
+          <div class="info-value">${salesOrder.order_number || "N/A"}</div>
+        </div>
+        <div class="info-block">
+          <div class="info-label">Order Date</div>
+          <div class="info-value">${
+            salesOrder.created_at
+              ? new Date(salesOrder.created_at).toLocaleDateString("en-IN", {
+                  year: "numeric",
+                  month: "short",
+                  day: "numeric",
+                })
+              : "N/A"
+          }</div>
+        </div>
+        <div class="info-block">
+          <div class="info-label">Expected Delivery</div>
+          <div class="info-value">${
+            salesOrder.expected_delivery_date
+              ? new Date(salesOrder.expected_delivery_date).toLocaleDateString(
+                  "en-IN",
+                  {
+                    year: "numeric",
+                    month: "short",
+                    day: "numeric",
+                  }
+                )
+              : "N/A"
+          }</div>
+        </div>
+        <div class="info-block">
+          <div class="info-label">Payment Terms</div>
+          <div class="info-value">${salesOrder.payment_terms || "N/A"}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Customer Information</h3>
+      <div class="info-row">
+        <div class="info-block">
+          <div class="info-label">Customer Name</div>
+          <div class="info-value">${customer?.name || "N/A"}</div>
+        </div>
+        <div class="info-block">
+          <div class="info-label">Customer ID</div>
+          <div class="info-value">${customer?.id || "N/A"}</div>
+        </div>
+        <div class="info-block">
+          <div class="info-label">Email</div>
+          <div class="info-value">${customer?.email || "N/A"}</div>
+        </div>
+        <div class="info-block">
+          <div class="info-label">Phone</div>
+          <div class="info-value">${customer?.phone || "N/A"}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h3>Order Details</h3>
+      <table>
+        <thead>
+          <tr>
+            <th>Item Description</th>
+            <th style="text-align: center;">Qty</th>
+            <th style="text-align: right;">Unit Price (₹)</th>
+            <th style="text-align: right;">Total (₹)</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            itemsHTML ||
+            `<tr><td colspan="4" style="text-align: center; color: #999;">No items found</td></tr>`
+          }
+        </tbody>
+      </table>
+    </div>
+
+    <div class="summary">
+      <table>
+        <tr><td>Sub Total:</td><td style="text-align: right;">₹${subtotal.toFixed(
+          2
+        )}</td></tr>
+        <tr><td>GST (Tax):</td><td style="text-align: right;">₹${tax.toFixed(
+          2
+        )}</td></tr>
+        <tr class="total"><td class="total">Total Amount:</td><td class="total" style="text-align: right;">₹${total.toFixed(
+          2
+        )}</td></tr>
+      </table>
+    </div>
+
+    <div class="clear"></div>
+
+    <div class="qr-box">
+      <h3>QR Code - Live Order Tracking</h3>
+      <img src="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(
+        `${salesOrder.order_number || "Order"} - Status: ${salesOrder.status}`
+      )}&size=120x120" alt="QR Code">
+    </div>
+
+    <div class="footer">
+      Thank you for your order with <strong>Passion Clothing Co.</strong><br>
+      This is a system-generated invoice. No signature required.<br>
+      <strong>Generated on:</strong> ${new Date().toLocaleString()}
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Helper function to generate PDF (using Buffer)
+ */
+async function generateInvoicePDF({ invoice, salesOrder, customer }) {
+  const PDFDocument = require("pdfkit");
+  const doc = new PDFDocument();
+
+  // Get HTML and convert to PDF (simplified approach)
+  // For production, consider using libraries like html2pdf or puppeteer
+  let buffers = [];
+  doc.on("data", (buffer) => {
+    buffers.push(buffer);
+  });
+
+  // Simple PDF generation
+  doc.fontSize(20).text("Sales Order Invoice", { align: "center" });
+  doc.fontSize(10).text("Passion Clothing Co.", { align: "center" });
+  doc.text("Chakan, Pune | +91-8080659069", { align: "center" });
+  doc.moveDown();
+
+  doc.fontSize(12).text(`Order Number: ${salesOrder.order_number}`);
+  doc.text(
+    `Order Date: ${
+      salesOrder.created_at
+        ? new Date(salesOrder.created_at).toLocaleDateString("en-IN", {
+            year: "numeric",
+            month: "short",
+            day: "numeric",
+          })
+        : "N/A"
+    }`
+  );
+  doc.text(
+    `Expected Delivery: ${
+      salesOrder.expected_delivery_date
+        ? new Date(salesOrder.expected_delivery_date).toLocaleDateString(
+            "en-IN",
+            {
+              year: "numeric",
+              month: "short",
+              day: "numeric",
+            }
+          )
+        : "N/A"
+    }`
+  );
+  doc.moveDown();
+
+  doc.fontSize(11).text("Customer Information:");
+  doc.fontSize(10);
+  doc.text(`Name: ${customer?.name || "N/A"}`);
+  doc.text(`Email: ${customer?.email || "N/A"}`);
+  doc.text(`Phone: ${customer?.phone || "N/A"}`);
+  doc.moveDown();
+
+  doc.fontSize(11).text("Order Items:");
+  doc.fontSize(10);
+  const items = salesOrder.items || [];
+  items.forEach((item) => {
+    doc.text(
+      `${item.product_name || "Product"} - Qty: ${item.quantity}, Price: ₹${
+        item.unit_price
+      }`
+    );
+  });
+  doc.moveDown();
+
+  const subtotal =
+    (salesOrder.total_quantity || 0) * (salesOrder.unit_price || 0);
+  const tax = salesOrder.gst_amount || 0;
+  const total = salesOrder.final_amount || subtotal + tax;
+
+  doc.fontSize(11).text("Summary:");
+  doc.fontSize(10);
+  doc.text(`Subtotal: ₹${subtotal.toFixed(2)}`);
+  doc.text(`Tax: ₹${tax.toFixed(2)}`);
+  doc.fontSize(12).text(`Total: ₹${total.toFixed(2)}`, { underline: true });
+  doc.moveDown();
+
+  doc.fontSize(9).text("Thank you for your order with Passion Clothing Co.", {
+    align: "center",
+  });
+  doc.text("This is a system-generated invoice.", { align: "center" });
+
+  doc.end();
+
+  return new Promise((resolve, reject) => {
+    doc.on("finish", () => {
+      resolve(Buffer.concat(buffers));
+    });
+    doc.on("error", reject);
+  });
+}
 
 module.exports = router;

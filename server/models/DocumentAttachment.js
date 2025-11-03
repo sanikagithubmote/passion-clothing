@@ -29,6 +29,7 @@ module.exports = (sequelize) => {
       document_type: {
         type: DataTypes.ENUM(
           "invoice",
+          "Sales Invoice",
           "proforma",
           "quotation",
           "specification",

@@ -39,6 +39,7 @@ const productionApprovalRoutes = require("./routes/productionApproval");
 const ordersRoutes = require("./routes/orders");
 const courierAgentRoutes = require("./routes/courierAgent");
 const invoicesRoutes = require("./routes/invoices");
+const documentsRoutes = require("./routes/documents");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -118,6 +119,7 @@ app.use("/api/material-verification", materialVerificationRoutes);
 app.use("/api/production-approval", productionApprovalRoutes);
 app.use("/api/orders", ordersRoutes);
 app.use("/api/invoices", invoicesRoutes);
+app.use("/api/documents", documentsRoutes);
 
 // Health check
 app.get("/api/health", (req, res) => {
