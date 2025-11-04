@@ -16,6 +16,7 @@ const {
 } = require("../config/database");
 const { authenticateToken, checkDepartment } = require("../middleware/auth");
 const NotificationService = require("../utils/notificationService");
+const ActivityService = require("../utils/ActivityService");
 
 const router = express.Router();
 
@@ -2091,6 +2092,36 @@ router.post(
     } catch (error) {
       console.error("Generate invoice error:", error);
       res.status(500).json({ message: "Failed to generate invoice" });
+    }
+  }
+);
+
+// Get recent activities (for dashboard)
+router.get(
+  "/dashboard/recent-activities",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { limit = 10, offset = 0, department } = req.query;
+
+      const result = await ActivityService.getRecentActivities({
+        limit: parseInt(limit),
+        offset: parseInt(offset),
+        department: department || undefined,
+      });
+
+      res.json({
+        activities: result.activities,
+        pagination: {
+          total: result.total,
+          limit: result.limit,
+          offset: result.offset,
+          pages: Math.ceil(result.total / result.limit),
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching recent activities:", error);
+      res.status(500).json({ message: "Failed to fetch recent activities" });
     }
   }
 );

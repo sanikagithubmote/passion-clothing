@@ -102,6 +102,7 @@ const ProductionCompletion = require("../models/ProductionCompletion")(
 );
 const CourierAgent = require("../models/CourierAgent")(sequelize);
 const DocumentAttachment = require("../models/DocumentAttachment")(sequelize);
+const Activity = require("../models/Activity")(sequelize);
 
 // Define associations
 const defineAssociations = () => {
@@ -944,6 +945,7 @@ const db = {
   ProductionCompletion,
   CourierAgent,
   DocumentAttachment,
+  Activity,
 };
 
 module.exports = db;

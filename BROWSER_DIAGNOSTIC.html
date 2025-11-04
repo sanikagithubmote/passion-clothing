@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Unknown Product Issue - Diagnostic Tool</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: 100vh;
+        padding: 20px;
+      }
+
+      .container {
+        max-width: 900px;
+        margin: 0 auto;
+      }
+
+      .header {
+        background: white;
+        padding: 30px;
+        border-radius: 12px 12px 0 0;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border-bottom: 4px solid #667eea;
+      }
+
+      .header h1 {
+        color: #333;
+        margin-bottom: 10px;
+        font-size: 28px;
+      }
+
+      .header p {
+        color: #666;
+        font-size: 14px;
+      }
+
+      .checks {
+        background: white;
+        padding: 30px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+
+      .check-item {
+        margin-bottom: 25px;
+        padding-bottom: 25px;
+        border-bottom: 1px solid #eee;
+      }
+
+      .check-item:last-child {
+        border-bottom: none;
+        margin-bottom: 0;
+        padding-bottom: 0;
+      }
+
+      .check-title {
+        font-weight: 600;
+        font-size: 16px;
+        color: #333;
+        margin-bottom: 15px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .check-title::before {
+        content: "▶";
+        display: inline-block;
+        width: 20px;
+        text-align: center;
+        cursor: pointer;
+      }
+
+      .check-item.collapsed .check-title::before {
+        content: "▶";
+        transform: rotate(-90deg);
+      }
+
+      .check-content {
+        display: none;
+        margin-left: 30px;
+        padding: 15px;
+        background: #f8f9fa;
+        border-left: 3px solid #667eea;
+        border-radius: 4px;
+      }
+
+      .check-item.open .check-content {
+        display: block;
+      }
+
+      .status {
+        padding: 12px;
+        border-radius: 6px;
+        margin: 10px 0;
+        font-family: monospace;
+        font-size: 13px;
+        overflow-x: auto;
+        word-break: break-all;
+      }
+
+      .status.success {
+        background: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+
+      .status.error {
+        background: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+
+      .status.info {
+        background: #d1ecf1;
+        color: #0c5460;
+        border: 1px solid #bee5eb;
+      }
+
+      .button {
+        background: #667eea;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-size: 14px;
+        margin: 5px 5px 5px 0;
+        transition: background 0.3s;
+      }
+
+      .button:hover {
+        background: #764ba2;
+      }
+
+      .button-secondary {
+        background: #6c757d;
+      }
+
+      .button-secondary:hover {
+        background: #5a6268;
+      }
+
+      .footer {
+        background: white;
+        padding: 20px 30px;
+        border-radius: 0 0 12px 12px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border-top: 4px solid #764ba2;
+        text-align: center;
+        color: #666;
+        font-size: 13px;
+      }
+
+      .spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid #f3f3f3;
+        border-top: 2px solid #667eea;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        vertical-align: middle;
+        margin-right: 5px;
+      }
+
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+
+      .result-box {
+        background: #f8f9fa;
+        padding: 15px;
+        border-left: 4px solid #667eea;
+        border-radius: 4px;
+        margin-top: 10px;
+        font-family: monospace;
+        font-size: 12px;
+        max-height: 300px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+
+      .recommendation {
+        background: #fff3cd;
+        border: 1px solid #ffc107;
+        padding: 15px;
+        border-radius: 6px;
+        margin-top: 15px;
+        color: #856404;
+      }
+
+      .recommendation strong {
+        display: block;
+        margin-bottom: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>🔍 Unknown Product Issue - Diagnostic Tool</h1>
+        <p>
+          Open your browser's Developer Tools (F12) to see detailed diagnostics
+        </p>
+      </div>
+
+      <div class="checks">
+        <!-- Check 1: Backend Connectivity -->
+        <div class="check-item open">
+          <div
+            class="check-title"
+            onclick="this.parentElement.classList.toggle('collapsed')"
+          >
+            Check 1: Backend Connectivity
+          </div>
+          <div class="check-content">
+            <button class="button" onclick="checkBackendConnection()">
+              <span id="check1-spinner"></span>
+              Test Backend Connection
+            </button>
+            <div id="check1-result"></div>
+          </div>
+        </div>
+
+        <!-- Check 2: API productName Field -->
+        <div class="check-item">
+          <div
+            class="check-title"
+            onclick="this.parentElement.classList.toggle('collapsed')"
+          >
+            Check 2: API Response Quality
+          </div>
+          <div class="check-content">
+            <button class="button" onclick="checkAPIResponse()">
+              <span id="check2-spinner"></span>
+              Check API Response
+            </button>
+            <div id="check2-result"></div>
+          </div>
+        </div>
+
+        <!-- Check 3: Specification Data -->
+        <div class="check-item">
+          <div
+            class="check-title"
+            onclick="this.parentElement.classList.toggle('collapsed')"
+          >
+            Check 3: Database Specification Data
+          </div>
+          <div class="check-content">
+            <p style="margin-bottom: 10px; color: #666">
+              This requires direct database access. Run this SQL on your AWS
+              database:
+            </p>
+            <div class="result-box">
+              SELECT id, production_number, product_id, specifications FROM
+              production_orders WHERE production_number = 'PRD-20251101-0002'
+              LIMIT 1;
+            </div>
+            <p style="margin-top: 10px; color: #666">
+              Then paste the result here:
+            </p>
+            <textarea
+              id="sqlResult"
+              style="
+                width: 100%;
+                height: 100px;
+                padding: 10px;
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                font-family: monospace;
+                font-size: 12px;
+              "
+              placeholder="Paste the SQL result here..."
+            ></textarea>
+            <button class="button" onclick="analyzeSQLResult()">
+              Analyze Result
+            </button>
+            <div id="check3-result"></div>
+          </div>
+        </div>
+
+        <!-- Check 4: Frontend Cache -->
+        <div class="check-item">
+          <div
+            class="check-title"
+            onclick="this.parentElement.classList.toggle('collapsed')"
+          >
+            Check 4: Browser Cache Status
+          </div>
+          <div class="check-content">
+            <button class="button" onclick="checkBrowserCache()">
+              Check Cache
+            </button>
+            <div id="check4-result"></div>
+          </div>
+        </div>
+
+        <!-- Summary -->
+        <div class="check-item">
+          <div
+            class="check-title"
+            onclick="this.parentElement.classList.toggle('collapsed')"
+          >
+            🎯 Summary & Recommendations
+          </div>
+          <div class="check-content">
+            <div id="summary-result">
+              <p style="color: #666">
+                Run the checks above to see recommendations
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer">
+        <p>
+          💡 Tip: Use F12 Developer Tools → Network tab to see all API calls
+        </p>
+        <p style="margin-top: 10px">
+          Having issues? Check the diagnostic files in the project root
+        </p>
+      </div>
+    </div>
+
+    <script>
+      async function checkBackendConnection() {
+        const resultDiv = document.getElementById("check1-result");
+        resultDiv.innerHTML =
+          '<div class="status info"><span class="spinner"></span>Checking backend...</div>';
+
+        try {
+          const response = await fetch(
+            "http://localhost:5000/api/manufacturing/orders?limit=1"
+          );
+
+          if (!response.ok) {
+            resultDiv.innerHTML = `
+                        <div class="status error">❌ Backend returned error: ${response.status}</div>
+                        <div class="recommendation"><strong>Solution:</strong>
+                            1. Make sure backend is running: npm start
+                            2. Backend should show "✅ Server running on port 5000"
+                            3. Wait 5 seconds and try again
+                        </div>
+                    `;
+            return;
+          }
+
+          const data = await response.json();
+          resultDiv.innerHTML = `
+                    <div class="status success">✅ Backend is running and responding!</div>
+                    <div class="result-box">Connection: SUCCESS
+Backend URL: http://localhost:5000
+Orders found: ${data.productionOrders ? data.productionOrders.length : 0}</div>
+                `;
+
+          // Check for productName field
+          if (data.productionOrders && data.productionOrders.length > 0) {
+            const hasProductName = !!data.productionOrders[0].productName;
+            if (hasProductName) {
+              resultDiv.innerHTML += `
+                            <div class="status success">✅ productName field EXISTS in response!</div>
+                            <div class="result-box">Value: ${data.productionOrders[0].productName}</div>
+                        `;
+            } else {
+              resultDiv.innerHTML += `
+                            <div class="status error">❌ productName field is MISSING from response!</div>
+                            <div class="recommendation"><strong>Solution:</strong>
+                                Backend hasn't been restarted to pick up code changes.
+                                1. Stop backend: Ctrl + C
+                                2. Wait 3 seconds
+                                3. Restart: npm start
+                                4. Try again
+                            </div>
+                        `;
+            }
+          }
+        } catch (error) {
+          resultDiv.innerHTML = `
+                    <div class="status error">❌ Cannot connect to backend</div>
+                    <div class="recommendation"><strong>Solution:</strong>
+                        Backend is not running. To start it:
+                        1. Open terminal in: c:\Users\admin\Desktop\passion-clothing
+                        2. Run: npm start
+                        3. Wait for: "✅ Server running on port 5000"
+                        4. Then try this diagnostic again
+                    </div>
+                `;
+        }
+      }
+
+      async function checkAPIResponse() {
+        const resultDiv = document.getElementById("check2-result");
+        resultDiv.innerHTML =
+          '<div class="status info"><span class="spinner"></span>Fetching API response...</div>';
+
+        try {
+          const response = await fetch(
+            "http://localhost:5000/api/manufacturing/orders?limit=3"
+          );
+          const data = await response.json();
+
+          if (!data.productionOrders || data.productionOrders.length === 0) {
+            resultDiv.innerHTML =
+              '<div class="status error">❌ No production orders found</div>';
+            return;
+          }
+
+          const order = data.productionOrders[0];
+          let details = `Total orders returned: ${data.productionOrders.length}\n\nFirst Order Analysis:\n`;
+          details += `Production Number: ${order.production_number}\n`;
+          details += `Product Name (backend): ${
+            order.productName || "MISSING ❌"
+          }\n`;
+          details += `Product (linked): ${order.product?.name || "NULL"}\n`;
+          details += `Specs product_name: ${
+            order.specifications?.product_name || "NULL"
+          }\n\n`;
+
+          if (order.productName && order.productName !== "Unknown Product") {
+            resultDiv.innerHTML = `
+                        <div class="status success">✅ API is returning productName correctly!</div>
+                        <div class="result-box">${details}</div>
+                        <div class="recommendation"><strong>Status:</strong> If you're still seeing "Unknown Product" in UI, clear browser cache:
+                            1. Press Ctrl + Shift + Delete
+                            2. Select "Cookies and other site data"
+                            3. Click Clear
+                            4. Go to http://localhost:3000/manufacturing/orders
+                            5. Press Ctrl + F5 (hard refresh)
+                        </div>
+                    `;
+          } else if (order.productName === "Unknown Product") {
+            resultDiv.innerHTML = `
+                        <div class="status error">⚠️ API returning 'Unknown Product' for all orders</div>
+                        <div class="result-box">${details}</div>
+                        <div class="recommendation"><strong>Root Cause:</strong> No product data found in database.
+                            Check your database using the SQL query in Check 3 to see if product_name exists in specifications.
+                        </div>
+                    `;
+          } else {
+            resultDiv.innerHTML = `
+                        <div class="status error">❌ productName field not in API response</div>
+                        <div class="result-box">${details}\nAvailable fields:\n${Object.keys(
+              order
+            ).join(", ")}</div>
+                        <div class="recommendation"><strong>Solution:</strong> Restart backend server
+                            1. Stop: Ctrl + C
+                            2. Wait 3 seconds
+                            3. Start: npm start
+                        </div>
+                    `;
+          }
+        } catch (error) {
+          resultDiv.innerHTML = `<div class="status error">❌ Error: ${error.message}</div>`;
+        }
+      }
+
+      function analyzeSQLResult() {
+        const sqlResult = document.getElementById("sqlResult").value;
+        const resultDiv = document.getElementById("check3-result");
+
+        if (!sqlResult.trim()) {
+          resultDiv.innerHTML =
+            '<div class="status error">Please paste the SQL result above first</div>';
+          return;
+        }
+
+        let analysis = "SQL Result Analysis:\n\n";
+
+        if (
+          sqlResult.toLowerCase().includes("product_id: null") ||
+          sqlResult.includes("product_id |")
+        ) {
+          analysis +=
+            "✅ product_id is NULL (OK for specification-based products)\n";
+        }
+
+        if (sqlResult.includes("product_name")) {
+          analysis += "✅ specifications contains product_name\n";
+          resultDiv.innerHTML = `
+                    <div class="status success">✅ Database has product data!</div>
+                    <div class="result-box">${analysis}\nThe fix should work. If still not showing:\n1. Restart backend\n2. Clear browser cache\n3. Hard refresh page (Ctrl+F5)</div>
+                `;
+        } else if (
+          sqlResult.toLowerCase().includes("null") ||
+          sqlResult.toLowerCase().includes("no rows")
+        ) {
+          analysis += "❌ No specifications or product_name found\n";
+          resultDiv.innerHTML = `
+                    <div class="status error">❌ No product data in database!</div>
+                    <div class="result-box">${analysis}\n<strong>Solutions:</strong>\n1. Create new production orders WITH product_name\n2. Or update existing order using SQL:\nUPDATE production_orders\nSET specifications = JSON_SET(specifications, '$.product_name', 'Product Name')\nWHERE production_number = 'PRD-20251101-0002';</div>
+                `;
+        } else {
+          resultDiv.innerHTML = `
+                    <div class="status info">Check the result above carefully</div>
+                    <div class="result-box">Your SQL result:\n${sqlResult}</div>
+                `;
+        }
+      }
+
+      function checkBrowserCache() {
+        const resultDiv = document.getElementById("check4-result");
+        const cacheStorage = localStorage.length + sessionStorage.length;
+
+        resultDiv.innerHTML = `
+                <div class="status info">Cache Information:</div>
+                <div class="result-box">LocalStorage items: ${localStorage.length}
+SessionStorage items: ${sessionStorage.length}
+Total: ${cacheStorage}
+
+To clear cache:
+1. Press Ctrl + Shift + Delete
+2. Select "Cookies and other site data"
+3. Click "Clear data"
+
+Or manually:
+1. Press F12 (Developer Tools)
+2. Go to "Application" tab
+3. Click "Clear Site Data"
+4. Then Ctrl + F5 to hard refresh</div>
+            `;
+      }
+
+      // Auto-run checks when page loads
+      window.addEventListener("load", () => {
+        console.log("Diagnostic tool loaded. Click on checks to run them.");
+      });
+    </script>
+  </body>
+</html>
